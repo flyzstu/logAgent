@@ -2,30 +2,16 @@ package main
 
 import (
 	"fmt"
-	"logAgent/conf"
-	"logAgent/kafka"
-	"logAgent/taillog"
-	"time"
+	"logagent/conf"
+	"logagent/etcd"
+	"logagent/kafka"
+	"logagent/taillog"
+	"sync"
 
 	"gopkg.in/ini.v1"
 )
 
-// var cfg *conf.AppConf       // 默认值是nil，会报错
 var cfg = new(conf.AppConf) // 要为cfg创建一个地址
-
-func run() {
-
-	// 1. 读取日志
-	for {
-		select {
-		case line := <-taillog.ReadChan(): // 读取到日志
-			//2. 发送到kafka
-			kafka.SendTokafka(cfg.KafkaConf.Topic, line.Text)
-		default: // 读取不到日志
-			time.Sleep(time.Second)
-		}
-	}
-}
 
 // logAgent入口程序
 func main() {
@@ -36,18 +22,34 @@ func main() {
 		return
 	}
 	// 1.初始化kafka链接
-	err = kafka.Init([]string{cfg.KafkaConf.Address})
+	err = kafka.Init([]string{cfg.KafkaConf.Address}, cfg.ChanMaxSize)
 	if err != nil {
-		fmt.Printf("init kafka failed, err :%s\n", err.Error())
+		fmt.Printf("init kafka failed, err :%v\n", err)
 		return
 	}
 	fmt.Println("init kafka success.")
-	// 2.打开日志文件准备收集日志
-	err = taillog.Init(cfg.TaillogConf.FileName)
+	// 2. 初始化etcd
+	// fmt.Printf("cfg: %#v\n", cfg)
+	err = etcd.Init(cfg.EtcdConf.Address, cfg.EtcdConf.Timeout)
 	if err != nil {
-		fmt.Printf("init taillog failed, err: %s\n", err.Error())
+		fmt.Printf("init etcd failed, err :%v\n", err)
 		return
 	}
-	fmt.Println("init taillog success.")
-	run()
+	fmt.Println("init etcd client success.")
+	// 2.1 从etcd中获取日志收集项的配置信息
+	logEntryConf, err := etcd.GetConf(cfg.EtcdConf.Key)
+	// 2.2 派一个哨兵去监视日志收集项的变化(有变化及时通知)
+	if err != nil {
+		fmt.Printf("get conf failed, err:%v\n", err)
+		return
+	}
+	fmt.Printf("get conf from etcd success, %v\n", logEntryConf)
+	for index, value := range logEntryConf {
+		fmt.Printf("index:%v, err:%v\n", index, *value)
+	}
+	// 3. 收集日志发往kafka
+	var wg sync.WaitGroup
+	wg.Add(1)
+	taillog.Init(logEntryConf)
+	wg.Wait()
 }
