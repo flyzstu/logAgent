@@ -38,18 +38,21 @@ func main() {
 	fmt.Println("init etcd client success.")
 	// 2.1 从etcd中获取日志收集项的配置信息
 	logEntryConf, err := etcd.GetConf(cfg.EtcdConf.Key)
-	// 2.2 派一个哨兵去监视日志收集项的变化(有变化及时通知)
 	if err != nil {
 		fmt.Printf("get conf failed, err:%v\n", err)
 		return
 	}
 	fmt.Printf("get conf from etcd success, %v\n", logEntryConf)
+	// 2.2 派一个哨兵去监视日志收集项的变化
+
 	for index, value := range logEntryConf {
 		fmt.Printf("index:%v, err:%v\n", index, *value)
 	}
 	// 3. 收集日志发往kafka
+	taillog.Init(logEntryConf)
 	var wg sync.WaitGroup
 	wg.Add(1)
-	taillog.Init(logEntryConf)
+	newConfChan := taillog.NewConfChan()             // 从taillog包中获取对外暴露的通道
+	go etcd.WatchConf(cfg.EtcdConf.Key, newConfChan) // 哨兵发现最新的配置信息会通知上面的通道
 	wg.Wait()
 }

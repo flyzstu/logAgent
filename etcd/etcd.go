@@ -58,3 +58,25 @@ func GetConf(key string) (logEntryConf []*LogEntry, err error) {
 	}
 	return
 }
+func WatchConf(key string, newConfCh chan<- []*LogEntry) {
+	ch := client.Watch(context.Background(), key)
+	// 从通道尝试取值
+	for wresp := range ch {
+		for _, evt := range wresp.Events {
+			fmt.Printf("Type:%v key:%s value:%s\n", evt.Type, string(evt.Kv.Key), string(evt.Kv.Value))
+			// 通知taillog.taskMgr
+			// 1. 先判断操作的类型
+			var newConf = []*LogEntry{}
+			if evt.Type != clientv3.EventTypeDelete {
+				// 如果是删除操作,手动传递一个空的配置项目
+				err := json.Unmarshal(evt.Kv.Value, &newConf) // 是否需要初始化newConf
+				if err != nil {
+					fmt.Printf("unmarshal failed, err :%v\n", err)
+					continue
+				}
+			}
+			fmt.Println("get new conf:", newConf)
+			newConfCh <- newConf
+		}
+	}
+}
