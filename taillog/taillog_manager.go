@@ -57,7 +57,23 @@ func (t *taillogMgr) run() {
 
 			}
 			// 2. 找出原来t.tskMap有但是newConf里面没有的，删去t.tskMap里面的任务
-c
+			for _, c1 := range t.logEntry { // 原配置中依次拿出配置项
+				isDelete := true
+				for _, c2 := range newConf { // 去新的配置中，逐一进行比较
+					if c2.Path == c1.Path && c2.Topic == c1.Topic {
+						// 原来有，现在也有，什么都不做
+						isDelete = false
+						continue
+					}
+					if isDelete {
+						// 把c1对应的tailObj给他停掉
+						mkey := fmt.Sprintf("%s_%s", c1.Path, c2.Topic)
+						//t.tskMap[mk] == > tailObj
+						t.tskMap[mkey].cancelFunc()
+					}
+				}
+			}
+
 			// 2.配置删除
 			// 3.配置变更
 			fmt.Println("新的配置来了: ", newConf)

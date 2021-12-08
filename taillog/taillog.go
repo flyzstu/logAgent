@@ -1,6 +1,7 @@
 package taillog
 
 import (
+	"context"
 	"fmt"
 	"logagent/kafka"
 
@@ -12,13 +13,19 @@ type TailTask struct {
 	path     string     // 收集路径
 	topic    string     // kafka主题
 	instance *tail.Tail // 日志收集实例
+	// 为了能实现退出t.run()
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
 // TailTask构造函数
 func NewTailTask(path, topic string) (tailObj *TailTask) {
+	ctx, cancel := context.WithCancel(context.Background())
 	tailObj = &TailTask{
-		path:  path,
-		topic: topic,
+		path:       path,
+		topic:      topic,
+		ctx:        ctx,
+		cancelFunc: cancel,
 	}
 	tailObj.init() // 根据路径去打开对应的日志
 	return
@@ -38,12 +45,16 @@ func (t *TailTask) init() {
 		fmt.Printf("tail file failed, err: %v", err)
 	}
 
+	// 当goroutine执行的函数退出的时候，goroutine就结束
 	go t.run() // 直接去采集日志信息并发送到kafka
 }
 
 func (t *TailTask) run() {
 	for {
 		select {
+		case <-t.ctx.Done(): // 如果收到cancal被执行的信号，就退出当前这个goroutine
+			fmt.Printf("tail task:%s_%s 结束了...\n", t.path, t.topic)
+			return
 		case line := <-t.instance.Lines: // 从tailObj的通道里一行一行读取日志数据
 			// 3.2 发往kafka
 			// kafka.SendTokafka(t.topic, line.Text) // 函数调用函数：通道
